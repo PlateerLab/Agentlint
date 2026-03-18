@@ -40,6 +40,12 @@ def register(
 def get_all() -> list[tuple[str, RuleDefinition, RuleChecker]]:
     """Return all registered rules."""
     # Trigger import of rule modules so they register themselves
-    from agentlint.rules import dependency, pyproject_rules, structure  # noqa: F401
+    from agentlint.rules import (  # noqa: F401
+        dependency,
+        layer_separation,
+        pyproject_rules,
+        schema_quality,
+        structure,
+    )
 
     return list(_REGISTRY)

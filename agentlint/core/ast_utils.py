@@ -157,7 +157,8 @@ def find_assignments(tree: ast.Module, name: str) -> list[dict[str, Any]]:
 def _has_docstring(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
     """Check if a function/class has a docstring."""
     if node.body and isinstance(node.body[0], ast.Expr):
-        return isinstance(node.body[0].value, ast.Constant)
+        val = node.body[0].value
+        return isinstance(val, ast.Constant) and isinstance(val.value, str)
     return False
 
 
