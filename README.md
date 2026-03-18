@@ -1,189 +1,183 @@
 # Toolint
 
-**Structural linter for MCP-compatible, zero-dependency Python agent tool packages.**
+[![CI](https://github.com/PlateerLab/Toolint/actions/workflows/ci.yml/badge.svg)](https://github.com/PlateerLab/Toolint/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/toolint)](https://pypi.org/project/toolint/)
+[![Python](https://img.shields.io/pypi/pyversions/toolint)](https://pypi.org/project/toolint/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`toolint` enforces architectural rules that ensure your Python package works correctly as:
-- A **standalone library** (`from my_tool import MyTool`)
-- A **CLI tool** (`my-tool search "query"`)
-- An **MCP server** (`my-tool serve --source spec.json`)
-- An **SDK middleware** (OpenAI / Anthropic client patches)
+**Structural linter for Python agent tool packages.**
 
-Inspired by the architecture of [graph-tool-call](https://github.com/SonAIengine/graph-tool-call).
+Ensures your package works as a **library**, **CLI**, and **MCP server** simultaneously — with zero-dependency core and proper facade separation.
 
-## Why?
+## The Problem
 
-Building agent-compatible tools is easy to get wrong:
+AI agent tools need to work in multiple contexts at once:
 
-| Mistake | Consequence |
-|---------|------------|
-| `core/` imports `numpy` without guard | Users without numpy get `ImportError` on `import my_tool` |
-| MCP server has business logic | Can't use the same functionality as a library |
-| `__version__` != `pyproject.toml` version | PyPI shows wrong version |
-| Tool function has no docstring | LLM can't understand what the tool does |
-| Optional dep not in `extras` | `pip install my-tool[mcp]` doesn't install MCP SDK |
+```python
+# As a library
+from my_tool import MyTool
+tg = MyTool()
+tg.search("query")
 
-`toolint` catches all of these **before** they reach users.
+# As a CLI
+$ my-tool search "query"
+
+# As an MCP server
+$ my-tool serve --source spec.json
+```
+
+Getting this right requires strict architectural discipline. Without it:
+
+- `core/` imports `numpy` → users get `ImportError` just from `import my_tool`
+- MCP server has business logic → can't reuse the same functionality as a library
+- CLI calls internal modules directly → refactoring breaks everything
+- Tool function has no docstring → LLM can't select the right tool
+- `__version__` doesn't match `pyproject.toml` → PyPI shows wrong version
+
+**Toolint catches all of these statically, before they reach users.**
 
 ## Installation
 
 ```bash
 pip install toolint
 
-# or with uv
-uv pip install toolint
-
-# or as a tool
+# or run without installing
 uvx toolint check .
 ```
 
-## Quick Start
+## Usage
 
 ```bash
-# Lint current project
+# Lint a project
 toolint check .
 
-# Lint with specific rules only
-toolint check . --select ATL101,ATL102
+# Select specific rules
+toolint check . --select ATL101,ATL201
 
-# Ignore specific rules
-toolint check . --ignore ATL105
+# Ignore rules
+toolint check . --ignore ATL105,ATL501
 
-# JSON output (for CI integration)
+# JSON output for CI
 toolint check . --format json
 
-# Show all available rules
+# List all rules
 toolint rules
 ```
 
-## Example Output
+## Real-World Example
+
+Running `toolint` against [graph-tool-call](https://github.com/SonAIengine/graph-tool-call) (248-tool search engine, 1K+ stars worth of architecture):
 
 ```
-my_tool/core/engine.py:3:0  ATL101 (error)
-  Hard import of 'numpy' in core module — core must be stdlib-only.
-  Use try/except ImportError guard or move to a non-core module.
+graph_tool_call/core/graph.py:9:4  ATL101 (error)
+  Third-party import 'networkx' in core module — core/ must be stdlib-only.
+  Move this module outside of core/, or add 'networkx' to
+  core_allowed_imports in [tool.toolint].
 
-my_tool/retrieval/embedding.py:5:0  ATL102 (error)
-  Optional import 'sentence_transformers' missing try/except ImportError guard.
+graph_tool_call/mcp_server.py:128:0  ATL201 (warning)
+  'mcp_server.py' imports internal module 'graph_tool_call.retrieval.engine'
+  instead of using facade 'ToolGraph'.
 
-my_tool/__init__.py:1:0  ATL004 (error)
-  Version mismatch: __init__.py has '0.2.0' but pyproject.toml has '0.2.1'
+graph_tool_call/tool_graph.py:410:0  ATL501 (warning)
+  Facade method 'ToolGraph.add_domain()' has no docstring.
 
-my_tool/mcp_server.py:42:8  ATL503 (error)
-  MCP tool function 'process_data' has no docstring.
-  LLMs rely on tool descriptions to select the right tool.
-
-4 issues found (4 errors, 0 warnings)
+11 issues found (1 error, 10 warnings)
 ```
 
-## Rules
+## Architecture Enforced
 
-### Layer 1: Structure (ATL0xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL001` | error | Package must have a single public facade class |
-| `ATL002` | error | `__main__.py` must exist and be registered in pyproject.toml scripts |
-| `ATL003` | warning | `__init__.py` must define `__all__` including the facade class |
-| `ATL004` | error | `__version__` in `__init__.py` must match pyproject.toml version |
-
-### Layer 2: Dependency Rules (ATL1xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL101` | error | No third-party imports in `core/` directory (stdlib only) |
-| `ATL102` | error | Optional dependencies must use `try/except ImportError` guard |
-| `ATL103` | warning | Import guard must include install hint (e.g. `pip install pkg[extra]`) |
-| `ATL104` | error | Optional imports must be registered in pyproject.toml `extras` |
-| `ATL105` | warning | `__init__.py` should not eagerly import optional-dep modules |
-
-### Layer 3: Layer Separation (ATL2xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL201` | warning | Interface files should not call internal business logic directly (type/enum/constant imports are allowed) |
-| `ATL202` | warning | CLI command handlers should invoke functionality through the facade class |
-| `ATL203` | warning | Interface layer should not import `core/` internals directly (except types/constants) |
-
-### Layer 4: pyproject.toml Consistency (ATL3xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL301` | error | CLI entry point must be registered in `[tool.poetry.scripts]` or `[project.scripts]` |
-| `ATL302` | error | If MCP server exists, `mcp` extras group must be defined |
-| `ATL303` | warning | `all` extras group must include all dependencies from other extras groups |
-
-### Layer 5: Tool Schema Quality (ATL5xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL501` | warning | Facade public methods must have docstrings |
-| `ATL502` | warning | Facade public methods must have parameter + return type hints |
-| `ATL503` | error | MCP tool functions must have docstrings (min 10 chars) |
-| `ATL504` | warning | MCP tool function docstrings should describe each parameter |
-
-### Layer 6: Agent Compatibility (ATL6xx)
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `ATL601` | warning | Facade public methods should return JSON-serializable types |
-| `ATL602` | error | MCP tool functions must return `str` (MCP protocol requirement) |
-| `ATL603` | warning | Facade/MCP tools should not silently swallow exceptions |
-
-## Configuration
-
-Add to `pyproject.toml`:
-
-```toml
-[tool.toolint]
-# Package root (auto-detected from pyproject.toml)
-package = "my_tool"
-
-# Facade class name (auto-detected if single prominent class exists)
-facade_class = "MyTool"
-
-# Core directory (default: "core")
-core_dir = "core"
-
-# Interface files (default: auto-detected)
-interface_files = ["mcp_server.py", "mcp_proxy.py", "middleware.py", "__main__.py"]
-
-# Extra stdlib-like packages allowed in core (escape hatch)
-core_allowed_imports = []
-
-# Rules to ignore
-ignore = ["ATL105"]
-```
-
-Or use a standalone file `.toolint.toml` with the same structure (without the `[tool.toolint]` nesting).
-
-## The Architecture This Enforces
+Toolint validates this package structure:
 
 ```
 my_package/
 ├── __init__.py          # __version__, __all__, lazy imports
-├── __main__.py          # CLI (argparse) — calls facade only
-├── core/                # ZERO external dependencies (stdlib only)
-│   ├── protocol.py      # Abstract interfaces (Protocol classes)
-│   └── models.py        # Domain models (dataclasses)
-├── feature_a/           # Business logic modules
-│   └── ...              # May use optional deps with import guards
+├── __main__.py          # CLI — calls facade only
+├── core/                # stdlib ONLY — no external deps
+│   ├── protocol.py      # Abstract interfaces (Protocol)
+│   └── models.py        # Domain models (dataclass)
+├── feature_a/           # Business logic (optional deps with guards)
 ├── facade.py            # Single public API class
-├── mcp_server.py        # MCP server — wraps facade only
-└── middleware.py         # SDK patches — wraps facade only
+├── mcp_server.py        # MCP server — wraps facade
+└── middleware.py         # SDK patches — wraps facade
 ```
 
-**Key principles:**
-1. **Core is stdlib-only** — anyone can `import my_tool` without installing extras
-2. **Facade is the single API surface** — all interfaces (CLI, MCP, middleware) go through it
+Four principles:
+
+1. **Core is stdlib-only** — `import my_tool` always works, no extras needed
+2. **Facade is the single API** — CLI, MCP, middleware all go through one class
 3. **Optional deps use import guards** — graceful degradation, not crashes
-4. **Interface layers are thin wrappers** — no business logic in MCP server or CLI
+4. **Interface layers are thin** — no business logic in MCP server or CLI
+
+## Rules
+
+### Structure (ATL0xx)
+
+| Rule | Sev | What it checks |
+|------|-----|----------------|
+| `ATL001` | error | Facade class exists in the package |
+| `ATL002` | error | `__main__.py` exists |
+| `ATL003` | warn | `__init__.py` has `__all__` with facade class |
+| `ATL004` | error | `__version__` matches `pyproject.toml` |
+
+### Dependencies (ATL1xx)
+
+| Rule | Sev | What it checks |
+|------|-----|----------------|
+| `ATL101` | error | `core/` has no third-party imports |
+| `ATL102` | error | Optional deps use `try/except ImportError` |
+| `ATL103` | warn | Import guard has install hint message |
+| `ATL104` | error | Guarded imports are in `pyproject.toml` extras |
+| `ATL105` | warn | `__init__.py` doesn't eagerly import optional deps |
+
+### Layer Separation (ATL2xx)
+
+| Rule | Sev | What it checks |
+|------|-----|----------------|
+| `ATL201` | warn | Interface files go through facade, not internal modules |
+| `ATL202` | warn | CLI references the facade class |
+| `ATL203` | warn | Interface doesn't import `core/` directly (types allowed) |
+
+### pyproject.toml (ATL3xx)
+
+| Rule | Sev | What it checks |
+|------|-----|----------------|
+| `ATL301` | error | CLI scripts entry registered |
+| `ATL302` | error | MCP server present → `mcp` extras defined |
+| `ATL303` | warn | `all` extras includes everything |
+
+### Schema Quality (ATL5xx)
+
+| Rule | Sev | What it checks |
+|------|-----|----------------|
+| `ATL501` | warn | Facade public methods have docstrings |
+| `ATL502` | warn | Facade public methods have type hints |
+| `ATL503` | error | MCP tool functions have docstrings (min 10 chars) |
+| `ATL504` | warn | MCP tool docstrings describe parameters |
+
+## Configuration
+
+```toml
+# pyproject.toml
+[tool.toolint]
+package = "my_tool"              # auto-detected
+facade_class = "MyTool"          # auto-detected
+core_dir = "core"                # default
+interface_files = [              # default
+    "mcp_server.py", "mcp_proxy.py",
+    "middleware.py", "__main__.py"
+]
+core_allowed_imports = []        # escape hatch for core/
+ignore = ["ATL105"]              # rules to skip
+```
+
+Or use `.toolint.toml` as a standalone config file.
 
 ## CI Integration
 
 ### GitHub Actions
 
 ```yaml
-- name: Lint agent tool structure
+- name: Structural lint
   run: uvx toolint check .
 ```
 
@@ -191,25 +185,25 @@ my_package/
 
 ```yaml
 repos:
-  - repo: https://github.com/PlateerLab/toolint
+  - repo: https://github.com/PlateerLab/Toolint
     rev: v0.1.0
     hooks:
       - id: toolint
 ```
 
-## Technical Details
+## How It Works
 
-- **Python 3.10+**
-- **Zero dependencies** — uses only `ast` and `tomllib` from stdlib
-- **Fast** — AST parsing, no runtime imports of the target package
-- **Self-validating** — `toolint` follows the same architecture it enforces
+- **Zero dependencies** — stdlib only (`ast`, `tomllib`, `pathlib`)
+- **AST-based** — parses Python files without importing them
+- **Fast** — 66 tests run in 0.1s, real projects lint in milliseconds
+- **Python 3.10+** — uses `sys.stdlib_module_names` for accurate stdlib detection
+
+## Links
+
+- [PyPI](https://pypi.org/project/toolint/)
+- [GitHub](https://github.com/PlateerLab/Toolint)
+- [graph-tool-call](https://github.com/SonAIengine/graph-tool-call) — reference architecture this linter validates
 
 ## License
 
 MIT
-
-## Links
-
-- [GitHub](https://github.com/PlateerLab/toolint)
-- [PyPI](https://pypi.org/project/toolint/) (coming soon)
-- [graph-tool-call](https://github.com/SonAIengine/graph-tool-call) — the reference implementation this linter is based on
