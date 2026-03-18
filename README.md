@@ -1,8 +1,8 @@
-# agent-tool-lint
+# Agentlint
 
 **Structural linter for MCP-compatible, zero-dependency Python agent tool packages.**
 
-`agent-tool-lint` enforces architectural rules that ensure your Python package works correctly as:
+`agentlint` enforces architectural rules that ensure your Python package works correctly as:
 - A **standalone library** (`from my_tool import MyTool`)
 - A **CLI tool** (`my-tool search "query"`)
 - An **MCP server** (`my-tool serve --source spec.json`)
@@ -22,37 +22,37 @@ Building agent-compatible tools is easy to get wrong:
 | Tool function has no docstring | LLM can't understand what the tool does |
 | Optional dep not in `extras` | `pip install my-tool[mcp]` doesn't install MCP SDK |
 
-`agent-tool-lint` catches all of these **before** they reach users.
+`agentlint` catches all of these **before** they reach users.
 
 ## Installation
 
 ```bash
-pip install agent-tool-lint
+pip install agentlint
 
 # or with uv
-uv pip install agent-tool-lint
+uv pip install agentlint
 
 # or as a tool
-uvx agent-tool-lint check .
+uvx agentlint check .
 ```
 
 ## Quick Start
 
 ```bash
 # Lint current project
-agent-tool-lint check .
+agentlint check .
 
 # Lint with specific rules only
-agent-tool-lint check . --select ATL101,ATL102
+agentlint check . --select ATL101,ATL102
 
 # Ignore specific rules
-agent-tool-lint check . --ignore ATL105
+agentlint check . --ignore ATL105
 
 # JSON output (for CI integration)
-agent-tool-lint check . --format json
+agentlint check . --format json
 
 # Show all available rules
-agent-tool-lint rules
+agentlint rules
 ```
 
 ## Example Output
@@ -134,7 +134,7 @@ my_tool/mcp_server.py:42:8  ATL503 (error)
 Add to `pyproject.toml`:
 
 ```toml
-[tool.agent-tool-lint]
+[tool.agentlint]
 # Package root (auto-detected from pyproject.toml)
 package = "my_tool"
 
@@ -154,7 +154,7 @@ core_allowed_imports = []
 ignore = ["ATL105"]
 ```
 
-Or use a standalone file `.agent-tool-lint.toml` with the same structure (without the `[tool.agent-tool-lint]` nesting).
+Or use a standalone file `.agentlint.toml` with the same structure (without the `[tool.agentlint]` nesting).
 
 ## The Architecture This Enforces
 
@@ -184,17 +184,17 @@ my_package/
 
 ```yaml
 - name: Lint agent tool structure
-  run: uvx agent-tool-lint check .
+  run: uvx agentlint check .
 ```
 
 ### Pre-commit
 
 ```yaml
 repos:
-  - repo: https://github.com/PlateerLab/agent-tool-lint
+  - repo: https://github.com/PlateerLab/agentlint
     rev: v0.1.0
     hooks:
-      - id: agent-tool-lint
+      - id: agentlint
 ```
 
 ## Technical Details
@@ -202,7 +202,7 @@ repos:
 - **Python 3.10+**
 - **Zero dependencies** — uses only `ast` and `tomllib` from stdlib
 - **Fast** — AST parsing, no runtime imports of the target package
-- **Self-validating** — `agent-tool-lint` follows the same architecture it enforces
+- **Self-validating** — `agentlint` follows the same architecture it enforces
 
 ## License
 
@@ -210,6 +210,6 @@ MIT
 
 ## Links
 
-- [GitHub](https://github.com/PlateerLab/agent-tool-lint)
-- [PyPI](https://pypi.org/project/agent-tool-lint/) (coming soon)
+- [GitHub](https://github.com/PlateerLab/agentlint)
+- [PyPI](https://pypi.org/project/agentlint/) (coming soon)
 - [graph-tool-call](https://github.com/SonAIengine/graph-tool-call) — the reference implementation this linter is based on
