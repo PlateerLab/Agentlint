@@ -183,7 +183,7 @@ Or use `.toolint.toml` as a standalone config file.
   run: uvx toolint check .
 ```
 
-### Pre-commit (coming soon)
+### Pre-commit
 
 ```yaml
 repos:
