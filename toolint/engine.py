@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from toolint.core.config import load_config
-from toolint.core.models import LintConfig, LintResult, RuleDefinition, Severity
-
-# Type for a rule checker function:
-#   (project_dir, config, pyproject_data) -> list[LintResult]
-RuleChecker = Callable[[Path, LintConfig, dict[str, Any]], list[LintResult]]
+from toolint.core.models import LintResult, RuleDefinition, Severity
+from toolint.rules.registry import RuleChecker
 
 
 class LintEngine:
@@ -40,30 +35,6 @@ class LintEngine:
             layer=layer,
         )
         self._checkers[rule_id] = checker
-
-    def rule(
-        self,
-        rule_id: str,
-        *,
-        name: str,
-        description: str,
-        severity: Severity,
-        layer: str,
-    ) -> Callable[[RuleChecker], RuleChecker]:
-        """Decorator to register a rule checker function."""
-
-        def decorator(fn: RuleChecker) -> RuleChecker:
-            self.register(
-                rule_id,
-                name=name,
-                description=description,
-                severity=severity,
-                layer=layer,
-                checker=fn,
-            )
-            return fn
-
-        return decorator
 
     @property
     def rules(self) -> dict[str, RuleDefinition]:

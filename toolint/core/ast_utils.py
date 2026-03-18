@@ -204,3 +204,95 @@ def is_stdlib(module_name: str) -> bool:
 def is_internal(module_name: str, package: str) -> bool:
     """Check if a module is internal to the package."""
     return module_name == package or module_name.startswith(f"{package}.")
+
+
+# --- facade detection ---
+
+MIN_FACADE_METHODS = 3
+"""Minimum number of public methods for a class to be considered a facade."""
+
+
+def detect_facade_class(pkg_dir: Path, config_facade_class: str = "") -> str | None:
+    """Detect the facade class name from the package.
+
+    If ``config_facade_class`` is set, returns it directly.
+    Otherwise auto-detects the class with the most public methods
+    (outside core/, tests/, __init__.py).
+    """
+    if config_facade_class:
+        return config_facade_class
+
+    best: tuple[str, int] | None = None
+    for py_file in pkg_dir.rglob("*.py"):
+        rel = py_file.relative_to(pkg_dir)
+        parts = rel.parts
+        if any(p in ("core", "tests", "__pycache__") for p in parts):
+            continue
+        if py_file.name == "__init__.py":
+            continue
+
+        tree = parse_file(py_file)
+        if tree is None:
+            continue
+        for cls in find_classes(tree):
+            count = cls["method_count"]
+            if count >= MIN_FACADE_METHODS and (best is None or count > best[1]):
+                best = (cls["name"], count)
+
+    return best[0] if best else None
+
+
+def is_lazy_import(tree: ast.Module, lineno: int) -> bool:
+    """Check if an import at the given line is inside a function/method body."""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            end_line = getattr(node, "end_lineno", None) or node.lineno
+            if node.lineno <= lineno <= end_line:
+                return True
+    return False
+
+
+def is_graceful_fallback(tree: ast.Module, import_line: int) -> bool:
+    """Check if an import guard's except block is a graceful fallback.
+
+    Graceful fallbacks (= None, = False, return, pass) don't need install hints
+    because the feature silently degrades without bothering the user.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+
+        try_start = node.lineno
+        try_end = max(
+            (
+                getattr(n, "end_lineno", 0) or getattr(n, "lineno", 0)
+                for n in ast.walk(node)
+                if hasattr(n, "lineno")
+            ),
+            default=node.lineno,
+        )
+        if not (try_start <= import_line <= try_end):
+            continue
+
+        for handler in node.handlers:
+            if handler.type is None:
+                continue
+            type_name = ""
+            if isinstance(handler.type, ast.Name):
+                type_name = handler.type.id
+            if type_name not in ("ImportError", "ModuleNotFoundError"):
+                continue
+
+            for stmt in handler.body:
+                if isinstance(stmt, ast.Assign):
+                    if isinstance(stmt.value, ast.Constant) and stmt.value.value in (
+                        None,
+                        False,
+                    ):
+                        return True
+                if isinstance(stmt, ast.Return):
+                    return True
+                if isinstance(stmt, ast.Pass):
+                    return True
+
+    return False

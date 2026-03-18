@@ -31,6 +31,9 @@ def register(
             severity=severity,
             layer=layer,
         )
+        if any(r[0] == rule_id for r in _REGISTRY):
+            msg = f"Rule {rule_id} already registered"
+            raise ValueError(msg)
         _REGISTRY.append((rule_id, rule_def, fn))
         return fn
 

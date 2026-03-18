@@ -10,35 +10,9 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from toolint.core.ast_utils import find_classes, get_imports, parse_file
+from toolint.core.ast_utils import detect_facade_class, find_classes, get_imports, parse_file
 from toolint.core.models import LintConfig, LintResult, Severity
 from toolint.rules.registry import register
-
-
-def _detect_facade_class(pkg_dir: Path, config: LintConfig) -> str | None:
-    """Detect the facade class name. Returns None if not found."""
-    if config.facade_class:
-        return config.facade_class
-
-    # Auto-detect: class with most public methods, outside core/
-    best: tuple[str, int] | None = None
-    for py_file in pkg_dir.rglob("*.py"):
-        rel = py_file.relative_to(pkg_dir)
-        parts = rel.parts
-        if any(p in ("core", "tests", "__pycache__") for p in parts):
-            continue
-        if py_file.name == "__init__.py":
-            continue
-
-        tree = parse_file(py_file)
-        if tree is None:
-            continue
-        for cls in find_classes(tree):
-            count = cls["method_count"]
-            if count >= 3 and (best is None or count > best[1]):
-                best = (cls["name"], count)
-
-    return best[0] if best else None
 
 
 def _get_interface_files(pkg_dir: Path, config: LintConfig) -> list[Path]:
@@ -117,7 +91,7 @@ def check_interface_no_business_logic(
     if not pkg_dir.is_dir():
         return []
 
-    facade_class = _detect_facade_class(pkg_dir, config)
+    facade_class = detect_facade_class(pkg_dir, config.facade_class)
     if not facade_class:
         return []
 
@@ -196,7 +170,7 @@ def check_cli_uses_facade(
     if not main_file.exists():
         return []
 
-    facade_class = _detect_facade_class(pkg_dir, config)
+    facade_class = detect_facade_class(pkg_dir, config.facade_class)
     if not facade_class:
         return []
 

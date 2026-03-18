@@ -6,7 +6,14 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from toolint.core.ast_utils import get_imports, is_internal, is_stdlib, parse_file
+from toolint.core.ast_utils import (
+    get_imports,
+    is_graceful_fallback,
+    is_internal,
+    is_lazy_import,
+    is_stdlib,
+    parse_file,
+)
 from toolint.core.models import LintConfig, LintResult, Severity
 from toolint.rules.registry import register
 
@@ -118,90 +125,16 @@ def _get_required_deps(pyproject: dict[str, Any]) -> set[str]:
     return deps
 
 
-def _is_lazy_import(py_file: Path, lineno: int) -> bool:
-    """Check if an import at the given line is inside a function/method body."""
-    tree = parse_file(py_file)
-    if tree is None:
-        return False
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            end_line = getattr(node, "end_lineno", None) or node.lineno
-            if node.lineno <= lineno <= end_line:
-                return True
-    return False
-
-
-def _is_graceful_fallback(py_file: Path, import_line: int) -> bool:
-    """Check if an import guard's except block is a graceful fallback.
-
-    Graceful fallbacks (= None, = False, return, pass) don't need install hints
-    because the feature silently degrades without bothering the user.
-    """
-    tree = parse_file(py_file)
-    if tree is None:
-        return False
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Try):
-            continue
-
-        # Find the try block containing our import
-        try_start = node.lineno
-        try_end = max(
-            (
-                getattr(n, "end_lineno", 0) or getattr(n, "lineno", 0)
-                for n in ast.walk(node)
-                if hasattr(n, "lineno")
-            ),
-            default=node.lineno,
-        )
-        if not (try_start <= import_line <= try_end):
-            continue
-
-        # Check each except handler
-        for handler in node.handlers:
-            if handler.type is None:
-                continue
-            type_name = ""
-            if isinstance(handler.type, ast.Name):
-                type_name = handler.type.id
-            if type_name not in ("ImportError", "ModuleNotFoundError"):
-                continue
-
-            # Analyze the except body
-            for stmt in handler.body:
-                # `= None` or `= False` assignment
-                if isinstance(stmt, ast.Assign):
-                    if isinstance(stmt.value, ast.Constant) and stmt.value.value in (None, False):
-                        return True
-                # `return` (with or without value)
-                if isinstance(stmt, ast.Return):
-                    return True
-                # `pass`
-                if isinstance(stmt, ast.Pass):
-                    return True
-
-    return False
-
-
-def _has_require_function(py_file: Path, module_name: str) -> bool:
+def _has_require_function(tree: ast.Module, source: str) -> bool:
     """Check if the file has a _require_xxx() function with an install hint.
 
     Pattern: def _require_xxx(): ... raise ImportError("... install ...")
     """
-    source = py_file.read_text(encoding="utf-8")
-    # Look for _require_ functions that mention "install"
-    tree = parse_file(py_file)
-    if tree is None:
-        return False
-
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
         if not node.name.startswith("_require"):
             continue
-        # Check if the function body mentions "install"
         func_start = node.lineno
         func_end = getattr(node, "end_lineno", node.lineno)
         lines = source.splitlines()
@@ -302,7 +235,7 @@ def check_optional_import_guard(
             if imp["in_try_except"]:
                 continue
             # Skip if it's inside a function/method (lazy import)
-            if _is_lazy_import(py_file, imp["line"]):
+            if is_lazy_import(tree, imp["line"]):
                 continue
 
             rel_path = py_file.relative_to(project_dir)
@@ -361,7 +294,7 @@ def check_import_guard_hint(
                 continue
 
             # Skip graceful fallbacks — they don't need install hints
-            if _is_graceful_fallback(py_file, imp["line"]):
+            if is_graceful_fallback(tree, imp["line"]):
                 continue
 
             # Check near the import (15 lines), the whole file for
@@ -374,7 +307,7 @@ def check_import_guard_hint(
             has_hint = (
                 "pip install" in block
                 or "install" in block.lower()
-                or _has_require_function(py_file, top)
+                or _has_require_function(tree, source)
             )
 
             if not has_hint:
@@ -430,7 +363,7 @@ def check_extras_registered(
             if not imp["in_try_except"]:
                 continue
             # Skip lazy imports inside functions
-            if _is_lazy_import(py_file, imp["line"]):
+            if is_lazy_import(tree, imp["line"]):
                 continue
 
             top = imp["top_module"]
@@ -498,7 +431,7 @@ def check_init_no_eager_optional(
         top = imp["top_module"]
         # Direct import of optional package at top level of __init__.py
         if top in optional_pkgs and not imp["in_try_except"]:
-            if not _is_lazy_import(init_file, imp["line"]):
+            if not is_lazy_import(tree, imp["line"]):
                 rel_path = init_file.relative_to(project_dir)
                 results.append(
                     LintResult(

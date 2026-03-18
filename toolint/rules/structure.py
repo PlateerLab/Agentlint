@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from toolint.core.ast_utils import find_assignments, find_classes, parse_file
+from toolint.core.ast_utils import MIN_FACADE_METHODS, find_assignments, find_classes, parse_file
 from toolint.core.models import LintConfig, LintResult, Severity
 from toolint.rules.registry import register
 
@@ -90,7 +90,7 @@ def _find_facade_candidates(pkg_dir: Path, package: str) -> list[dict[str, Any]]
         if tree is None:
             continue
         for cls in find_classes(tree):
-            if cls["method_count"] >= 3:  # at least 3 public methods
+            if cls["method_count"] >= MIN_FACADE_METHODS:
                 candidates.append({**cls, "file": str(py_file)})
 
     return candidates

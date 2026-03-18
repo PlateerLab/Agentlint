@@ -171,20 +171,15 @@ def test_lint_result_to_dict() -> None:
     assert d["hint"] == "Fix it"
 
 
-def test_rule_decorator() -> None:
+def test_register_method() -> None:
     engine = LintEngine()
-
-    @engine.rule(
+    engine.register(
         "ATL888",
-        name="deco-test",
-        description="Test decorator",
+        name="reg-test",
+        description="Test register",
         severity=Severity.WARNING,
         layer="test",
+        checker=_dummy_checker_pass,
     )
-    def check_something(
-        project_dir: Path, config: LintConfig, pyproject: dict[str, Any]
-    ) -> list[LintResult]:
-        return []
-
     assert "ATL888" in engine.rules
-    assert engine.rules["ATL888"].name == "deco-test"
+    assert engine.rules["ATL888"].name == "reg-test"

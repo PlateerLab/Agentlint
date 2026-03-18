@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import TYPE_CHECKING
 
 from toolint import __version__
+
+if TYPE_CHECKING:
+    from toolint.engine import LintEngine
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -46,7 +50,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _get_engine() -> LintEngine:  # noqa: F821
+def _get_engine() -> LintEngine:
     """Create a LintEngine with all rules registered."""
     from toolint.engine import LintEngine
 
